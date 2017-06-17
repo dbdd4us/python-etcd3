@@ -6,6 +6,7 @@ import grpc
 import grpc._channel
 
 from six.moves import queue
+from requests import HTTPError as RequestsHTTPError
 
 import etcd3.etcdrpc as etcdrpc
 import etcd3.exceptions as exceptions
@@ -15,6 +16,9 @@ import etcd3.members
 import etcd3.transactions as transactions
 import etcd3.utils as utils
 import etcd3.watch as watch
+
+from etcd3.etcdhttp.stub import Stub
+from etcd3.etcdhttp.client import HTTPClient
 
 _EXCEPTIONS_BY_CODE = {
     grpc.StatusCode.INTERNAL: exceptions.InternalServerError,
@@ -38,13 +42,13 @@ def _handle_errors(f):
             try:
                 for data in f(*args, **kwargs):
                     yield data
-            except grpc.RpcError as exc:
+            except (grpc.RpcError, RequestsHTTPError) as exc:
                 _translate_exeption(exc)
     else:
         def handler(*args, **kwargs):
             try:
                 return f(*args, **kwargs)
-            except grpc.RpcError as exc:
+            except (grpc.RpcError, RequestsHTTPError) as exc:
                 _translate_exeption(exc)
 
     return functools.wraps(f)(handler)
@@ -815,3 +819,24 @@ def client(host='localhost', port=2379,
                        cert_key=cert_key,
                        cert_cert=cert_cert,
                        timeout=timeout)
+
+
+class HTTP2Etcd3Client(Etcd3Client):
+
+    def __init__(self, host='localhost', port=2379, certs=(), timeout=None):
+        self.client = HTTPClient(base_url="http://{}:{}/v3alpha".format(host, port), timeout=timeout)
+        if certs:
+            self.client.cert = certs
+        self.timeout = timeout
+        _stub = Stub(self.client)
+        self.kvstub = _stub
+        self.watcher = watch.Watcher(_stub, timeout=self.timeout)
+        self.clusterstub = _stub
+        self.leasestub = _stub
+        self.maintenancestub = _stub
+        self.transactions = Transactions()
+
+
+def http2_client(host='localhost', port=2379, timeout=None, certs=()):
+    """Return an instance of an HTTPEtcd3Client."""
+    return HTTP2Etcd3Client(host=host, port=port, timeout=timeout, certs=())

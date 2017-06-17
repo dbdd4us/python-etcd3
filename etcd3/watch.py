@@ -3,6 +3,7 @@ import threading
 import grpc
 
 from six.moves import queue
+from requests import HTTPError as RequestsHTTPError
 
 import etcd3.etcdrpc as etcdrpc
 import etcd3.events as events
@@ -53,7 +54,7 @@ class Watcher(threading.Thread):
                 if callback:
                     for event in response.events:
                         callback(events.new_event(event))
-        except grpc.RpcError as e:
+        except (grpc.RpcError, RequestsHTTPError) as e:
             self.stop()
             if self._watch_id_callbacks:
                 for callback in self._watch_id_callbacks.values():
